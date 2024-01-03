@@ -1,8 +1,6 @@
 package com.martin.inputspy
 
 import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.hardware.input.InputManager
@@ -21,19 +19,18 @@ class InputSpyService : Service() {
     companion object {
         private const val TAG = "TAG"
         private const val INPUT_CHANNEL_NAME = "asqa_input_spy_channel_name"
-        private const val NOTIFICATION_CHANNEL_ID = "notification_channel_634h7hfd9"
-        private const val NOTIFICATION_ID = 100
     }
 
-    private lateinit var mInputManager: InputManager
+    private val mInputManager: InputManager by lazy { this.getSystemService(InputManager::class.java) }
     private lateinit var mInputMonitor: InputMonitor
     private lateinit var mInputEventReceiver: InputEventReceiver
+
+    private var isMonitoring: Boolean = false
 
     override fun onCreate() {
         Log.d(TAG, "$this onCreate")
         super.onCreate()
         makeSelfForeground()
-        mInputManager = getSystemService(InputManager::class.java)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -48,8 +45,64 @@ class InputSpyService : Service() {
 
     override fun onDestroy() {
         Log.d(TAG, "$this onDestroy")
-        super.onDestroy()
         stopMonitor()
+        super.onDestroy()
+    }
+
+    private fun makeSelfForeground() {
+        val notificationId = 100
+        val notification: Notification =
+            Notification.Builder(this, InputSpyApp.NOTIFICATION_CHANNEL_ID)
+                .setContentTitle("Input Spy")
+                .setContentText("Input Spy is monitoring your input event")
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setTicker("This is the ticker")
+                .build()
+        startForeground(notificationId, notification)
+    }
+
+    private fun makeSelfBackground() {
+        stopForeground(STOP_FOREGROUND_REMOVE)
+    }
+
+    private fun startMonitor() {
+        if (isMonitoring) {
+            Log.i(TAG, "ignore duplicated startMonitor")
+            return
+        }
+        try {
+            mInputMonitor =
+                mInputManager.monitorGestureInput(INPUT_CHANNEL_NAME, Display.DEFAULT_DISPLAY)
+            Log.d(TAG, "created $mInputMonitor")
+            mInputEventReceiver =
+                object : InputEventReceiver(mInputMonitor.inputChannel, Looper.getMainLooper()) {
+                    override fun onInputEvent(event: InputEvent) {
+                        if (event is MotionEvent) {
+                            handleMotionEvent(event)
+                        }
+                        super.onInputEvent(event)
+                    }
+                }
+            Log.d(TAG, "created $mInputEventReceiver")
+            isMonitoring = true
+        } catch (t: Throwable) {
+            Log.e(TAG, "can't create InputMonitor! is this app signed with system signature?")
+
+            // this will trigger onDestroy() -> stopMonitor()
+            stopSelf()
+        }
+    }
+
+    private fun stopMonitor() {
+        if (this::mInputMonitor.isInitialized) {
+            mInputMonitor.dispose()
+            Log.d(TAG, "disposed $mInputMonitor")
+        }
+        if (this::mInputEventReceiver.isInitialized) {
+            mInputEventReceiver.dispose()
+            Log.d(TAG, "disposed $mInputEventReceiver")
+        }
+        isMonitoring = false
     }
 
     private fun handleMotionEvent(event: MotionEvent) {
@@ -60,66 +113,5 @@ class InputSpyService : Service() {
         val x = event.getX(pointerIndex)
         val y = event.getY(pointerIndex)
         Log.d(TAG, "pointerIndex = $pointerIndex, pointerId = $pointerId, [x,y] = [$x,$y]")
-    }
-
-    private fun startMonitor() {
-        mInputMonitor =
-            mInputManager.monitorGestureInput(INPUT_CHANNEL_NAME, Display.DEFAULT_DISPLAY)
-        Log.d(TAG, "created $mInputMonitor")
-
-        mInputEventReceiver =
-            object : InputEventReceiver(mInputMonitor.inputChannel, Looper.getMainLooper()) {
-                override fun onInputEvent(event: InputEvent) {
-                    if (event is MotionEvent) {
-                        handleMotionEvent(event)
-                    }
-                    super.onInputEvent(event)
-                }
-            }
-    }
-
-    private fun stopMonitor() {
-        mInputMonitor.dispose()
-        Log.d(TAG, "disposed $mInputMonitor")
-
-        mInputEventReceiver.dispose()
-        Log.d(TAG, "disposed $mInputEventReceiver")
-    }
-
-
-    private fun makeSelfForeground() {
-        ensureChannelIsCreated()
-        val notification: Notification = Notification.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("Input Spy")
-            .setContentText("Input Spy is monitoring your input")
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setTicker("This is the ticker text")
-            .build()
-        startForeground(NOTIFICATION_ID, notification)
-    }
-
-    private fun makeSelfBackground() {
-        stopForeground(STOP_FOREGROUND_REMOVE)
-    }
-
-    private fun ensureChannelIsCreated() {
-        // duplicate creating an existing channel has actually no effects.
-        createNotificationChannel()
-    }
-
-    /**
-     * Create the NotificationChannel.
-     *
-     * Official doc: https://developer.android.com/develop/ui/views/notifications/channels#CreateChannel
-     */
-    private fun createNotificationChannel() {
-        val name = "channel_name"
-        val descriptionText = "description_name"
-        val importance = NotificationManager.IMPORTANCE_HIGH
-        val mChannel = NotificationChannel(NOTIFICATION_CHANNEL_ID, name, importance)
-        mChannel.description = descriptionText
-        // Register the channel with the system. You can't change the importance or other notification behaviors after that.
-        val notificationManager = getSystemService(NotificationManager::class.java)
-        notificationManager.createNotificationChannel(mChannel)
     }
 }

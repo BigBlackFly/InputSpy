@@ -67,8 +67,11 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "isSystemApp = $isSystemApp")
             Log.d(TAG, "isUpdatedSystemApp = $isUpdatedSystemApp")
             Log.d(TAG, "isSignedWithPlatformKey = $isSignedWithPlatformKey")
-        } catch (e: Error) {
-            Log.e(TAG, "can't access system private apis")
+        } catch (t: Throwable) {
+            Log.e(
+                TAG,
+                "can't access system private apis! is this app signed with system signature?"
+            )
         }
     }
 }
